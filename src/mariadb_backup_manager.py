@@ -1527,15 +1527,41 @@ class MainWindow(QMainWindow):
         subprocess.Popen(["xdg-open", d])
 
     def _delete_selected_backup(self):
-        row = self.tbl.currentRow()
-        if row < 0: return
-        fp = self.tbl.item(row, 0).data(Qt.UserRole)
-        if not fp: return
+        rows = sorted(set(idx.row() for idx in self.tbl.selectedIndexes()), reverse=True)
+        if not rows:
+            QMessageBox.information(self, "Sin selección", "Selecciona al menos un backup.")
+            return
+        nombres = []
+        rutas = []
+        for r in rows:
+            fp = self.tbl.item(r, 0).data(Qt.UserRole)
+            if fp:
+                rutas.append(fp)
+                nombres.append(os.path.basename(fp))
+        if not rutas:
+            return
+        msg = f"¿Eliminar {len(rutas)} archivo(s)?\n\n" + "\n".join(nombres[:10])
+        if len(nombres) > 10:
+            msg += f"\n... y {len(nombres) - 10} más"
         if QMessageBox.question(
-            self, "Eliminar", f"¿Eliminar?\n{os.path.basename(fp)}",
-            QMessageBox.Yes | QMessageBox.No
-        ) == QMessageBox.Yes:
-            os.remove(fp); self._refresh_backup_list()
+            self, "Eliminar", msg, QMessageBox.Yes | QMessageBox.No
+        ) != QMessageBox.Yes:
+            return
+        errores = 0
+        for fp in rutas:
+            try:
+                os.remove(fp)
+            except PermissionError:
+                subprocess.run(["sudo", "-n", "rm", "-f", fp],
+                               capture_output=True, text=True)
+                if os.path.exists(fp):
+                    errores += 1
+            except Exception:
+                errores += 1
+        if errores:
+            QMessageBox.warning(self, "Advertencia",
+                f"{errores} archivo(s) no se pudieron eliminar (permisos).")
+        self._refresh_backup_list()
 
     def _hsize(self, size):
         for u in ["B", "KB", "MB", "GB"]:

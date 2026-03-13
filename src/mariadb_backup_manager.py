@@ -700,13 +700,15 @@ class MainWindow(QMainWindow):
         self.raise_()
 
     def _tray_quit(self):
-        dlg = QInputDialog(self)
-        dlg.setWindowTitle("Confirmar salida")
-        dlg.setLabelText("Ingresa tu contraseña de usuario para salir:")
-        dlg.setTextEchoMode(QLineEdit.Password)
-        if dlg.exec_() != QInputDialog.Accepted:
+        self.showNormal()
+        self.activateWindow()
+        pwd, ok = QInputDialog.getText(
+            self, "Confirmar salida",
+            "Ingresa tu contraseña de usuario para salir:",
+            QLineEdit.Password
+        )
+        if not ok or not pwd:
             return
-        pwd = dlg.textValue()
         r = subprocess.run(
             ["sudo", "-k", "-S", "true"],
             input=pwd + "\n", capture_output=True, text=True
@@ -771,7 +773,7 @@ class MainWindow(QMainWindow):
         lay.addWidget(self.progress)
 
         # Footer
-        lbl_footer = QLabel("v1.0.0 r9 — Creado por: tuxor.max@gmail.com")
+        lbl_footer = QLabel("v1.0.0 r10 — Creado por: tuxor.max@gmail.com")
         lbl_footer.setAlignment(Qt.AlignCenter)
         lbl_footer.setStyleSheet(f"color:{TEXT_MUTED}; font-size:12px; padding:4px;")
         lay.addWidget(lbl_footer)
@@ -1153,6 +1155,7 @@ class MainWindow(QMainWindow):
             f"font-size:15px; font-weight:bold; color:{ACCENT};"
         )
         self.lbl_shutdown_detail.setText("")
+        self.lbl_today_schedule.setVisible(False)
 
         self._shutdown_timer.start(1000)
         self._tick_countdown()
@@ -1224,6 +1227,8 @@ class MainWindow(QMainWindow):
         )
         self.lbl_countdown.setText("")
         self.lbl_shutdown_detail.setText("")
+        self.lbl_today_schedule.setVisible(True)
+        self._update_service_status()
 
     # ── Tab Historial ────────────────────────────────────────────────────────
     def _tab_historial(self):

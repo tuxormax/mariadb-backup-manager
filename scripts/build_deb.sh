@@ -5,7 +5,7 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 VERSION="1.0"
-REVISION="3"
+REVISION="4"
 PKG_NAME="mariadb-backup-manager_v${VERSION}_rev${REVISION}"
 PKG_DIR="/tmp/${PKG_NAME}"
 
@@ -91,19 +91,22 @@ cat > "$PKG_DIR/DEBIAN/prerm" << 'EOF'
 #!/bin/bash
 set -e
 for home_dir in /home/*; do
-    autostart="$home_dir/.config/autostart/mariadb_backup_manager.desktop"
-    [ -f "$autostart" ] && rm -f "$autostart"
+    rm -f "$home_dir/.config/autostart/mariadb_backup_manager.desktop"
+    rm -f "$home_dir/.config/mariadb_backup_manager.json"
 done
+systemctl disable mariadb-backup-inicio.service 2>/dev/null || true
+systemctl disable mariadb-backup-apagado.service 2>/dev/null || true
+rm -f /etc/systemd/system/mariadb-backup-inicio.service
+rm -f /etc/systemd/system/mariadb-backup-apagado.service
+rm -f /usr/local/bin/mariadb_backup.sh
+rm -f /etc/sudoers.d/mariadb-backup-manager
+systemctl daemon-reload 2>/dev/null || true
 exit 0
 EOF
 
 cat > "$PKG_DIR/DEBIAN/postrm" << 'EOF'
 #!/bin/bash
 set -e
-if [ "$1" = "purge" ]; then
-    for h in /home/*; do rm -f "$h/.config/mariadb_backup_manager.json"; done
-    rm -f /etc/sudoers.d/mariadb-backup-manager
-fi
 command -v update-desktop-database &>/dev/null && \
     update-desktop-database /usr/share/applications/ 2>/dev/null || true
 exit 0

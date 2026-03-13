@@ -757,7 +757,7 @@ class MainWindow(QMainWindow):
         lay.addWidget(self.progress)
 
         # Footer
-        lbl_footer = QLabel("v1.0.0 r3 — Creado por: tuxor.max@gmail.com")
+        lbl_footer = QLabel("v1.0.0 r4 — Creado por: tuxor.max@gmail.com")
         lbl_footer.setAlignment(Qt.AlignCenter)
         lbl_footer.setStyleSheet(f"color:{TEXT_MUTED}; font-size:12px; padding:4px;")
         lay.addWidget(lbl_footer)
@@ -940,9 +940,15 @@ class MainWindow(QMainWindow):
         row_btns.addWidget(self.btn_cancel_sd)
         lay.addLayout(row_btns)
 
-        # ── Panel de estado (cuenta regresiva) ──────────────────────────────
+        # ── Panel de estado ────────────────────────────────────────────────
         self.grp_countdown = QGroupBox("Estado")
         gc = QVBoxLayout(self.grp_countdown)
+
+        self.lbl_svc_inicio = QLabel("")
+        self.lbl_svc_apagado = QLabel("")
+        gc.addWidget(self.lbl_svc_inicio)
+        gc.addWidget(self.lbl_svc_apagado)
+        gc.addSpacing(8)
 
         self.lbl_countdown_title = QLabel("Sin apagado programado")
         self.lbl_countdown_title.setStyleSheet(
@@ -960,20 +966,15 @@ class MainWindow(QMainWindow):
         self.lbl_shutdown_detail.setAlignment(Qt.AlignCenter)
         self.lbl_shutdown_detail.setStyleSheet(f"color:{TEXT_MUTED}; font-size:15px;")
 
-        self.prog_countdown = QProgressBar()
-        self.prog_countdown.setRange(0, 100)
-        self.prog_countdown.setValue(0)
-        self.prog_countdown.setVisible(False)
+        self.lbl_today_schedule = QLabel("")
+        self.lbl_today_schedule.setAlignment(Qt.AlignCenter)
+        self.lbl_today_schedule.setStyleSheet(f"color:{TEXT}; font-size:15px;")
 
         gc.addWidget(self.lbl_countdown_title)
         gc.addWidget(self.lbl_countdown)
         gc.addWidget(self.lbl_shutdown_detail)
         gc.addSpacing(4)
-        gc.addWidget(self.prog_countdown)
-
-        self.lbl_svc = QLabel("")
-        self.lbl_svc.setAlignment(Qt.AlignCenter)
-        gc.addWidget(self.lbl_svc)
+        gc.addWidget(self.lbl_today_schedule)
 
         lay.addWidget(self.grp_countdown)
 
@@ -1105,7 +1106,6 @@ class MainWindow(QMainWindow):
 
         self.btn_schedule.setEnabled(False)
         self.btn_cancel_sd.setEnabled(True)
-        self.prog_countdown.setVisible(True)
 
         self.lbl_countdown_title.setText("⏻  Apagado programado para las")
         self.lbl_countdown_title.setStyleSheet(
@@ -1147,10 +1147,6 @@ class MainWindow(QMainWindow):
         s = int(remaining % 60)
         self.lbl_countdown.setText(f"{h:02d}:{m:02d}:{s:02d}")
 
-        elapsed = self._shutdown_total - remaining
-        pct     = int(elapsed / self._shutdown_total * 100) if self._shutdown_total else 0
-        self.prog_countdown.setValue(pct)
-
         if remaining < 60:
             self.lbl_countdown.setStyleSheet(
                 f"font-size:36px; font-weight:bold; color:{ERROR}; letter-spacing:2px;"
@@ -1189,8 +1185,6 @@ class MainWindow(QMainWindow):
 
         self.btn_schedule.setEnabled(True)
         self.btn_cancel_sd.setEnabled(False)
-        self.prog_countdown.setVisible(False)
-        self.prog_countdown.setValue(0)
 
         self.lbl_countdown_title.setText("Apagado cancelado ✓")
         self.lbl_countdown_title.setStyleSheet(
@@ -1506,12 +1500,39 @@ class MainWindow(QMainWindow):
     def _update_service_status(self):
         a = Path("/etc/systemd/system/mariadb-backup-inicio.service").exists()
         b = Path("/etc/systemd/system/mariadb-backup-apagado.service").exists()
-        parts = []
-        for label, active in [("Inicio", a), ("Apagado", b)]:
-            c = SUCCESS if active else TEXT_MUTED
-            s = "✓" if active else "○"
-            parts.append(f'<span style="color:{c}">{s} Servicio {label}</span>')
-        self.lbl_svc.setText("  |  ".join(parts))
+        if a:
+            self.lbl_svc_inicio.setText(f'<span style="color:{SUCCESS}">✓ Servicio backup al encender — Instalado</span>')
+        else:
+            self.lbl_svc_inicio.setText(f'<span style="color:{ERROR}">✗ Servicio backup al encender — No instalado</span>')
+        if b:
+            self.lbl_svc_apagado.setText(f'<span style="color:{SUCCESS}">✓ Servicio backup al apagar — Instalado</span>')
+        else:
+            self.lbl_svc_apagado.setText(f'<span style="color:{ERROR}">✗ Servicio backup al apagar — No instalado</span>')
+        self._update_today_schedule()
+
+    def _update_today_schedule(self):
+        dias_es = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
+        hoy = dias_es[datetime.now().weekday()]
+        sched = self.config.get("scheduled_shutdown")
+        if sched and sched.get("mode") == "hora":
+            horas = sched.get("horas_dia", {})
+            hora = horas.get(hoy, "")
+            if hora:
+                self.lbl_today_schedule.setText(
+                    f'Hoy ({hoy}) — apagado a las <b>{hora}</b>')
+                return
+        if sched and sched.get("mode") == "mins":
+            mins = sched.get("mins", 0)
+            if mins:
+                self.lbl_today_schedule.setText(
+                    f'Apagado configurado en <b>{mins} minutos</b>')
+                return
+        if hasattr(self, 'inp_horas_dia') and hoy in self.inp_horas_dia:
+            hora = self.inp_horas_dia[hoy].time().toString("HH:mm")
+            self.lbl_today_schedule.setText(
+                f'Hoy ({hoy}) — hora configurada: <b>{hora}</b>')
+            return
+        self.lbl_today_schedule.setText("")
 
     # ── Historial ────────────────────────────────────────────────────────────
     def _refresh_backup_list(self):

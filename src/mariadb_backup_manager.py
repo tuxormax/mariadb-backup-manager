@@ -757,7 +757,7 @@ class MainWindow(QMainWindow):
         lay.addWidget(self.progress)
 
         # Footer
-        lbl_footer = QLabel("v1.0.0 r6 — Creado por: tuxor.max@gmail.com")
+        lbl_footer = QLabel("v1.0.0 r7 — Creado por: tuxor.max@gmail.com")
         lbl_footer.setAlignment(Qt.AlignCenter)
         lbl_footer.setStyleSheet(f"color:{TEXT_MUTED}; font-size:12px; padding:4px;")
         lay.addWidget(lbl_footer)
@@ -892,24 +892,40 @@ class MainWindow(QMainWindow):
         row_mode.addWidget(self.cmb_shutdown_mode); row_mode.addStretch()
         gm.addLayout(row_mode)
 
-        # Hora específica por día de la semana
+        # Hora específica por día de la semana (2 columnas)
         self.row_hora = QWidget()
-        rh = QVBoxLayout(self.row_hora); rh.setContentsMargins(0, 0, 0, 0); rh.setSpacing(6)
-        dias = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
+        rh = QHBoxLayout(self.row_hora); rh.setContentsMargins(0, 4, 0, 4); rh.setSpacing(20)
         self.inp_horas_dia = {}
-        for dia in dias:
-            fila = QHBoxLayout()
-            fila.setSpacing(12)
+
+        col_izq = QVBoxLayout(); col_izq.setSpacing(8)
+        for dia in ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes"]:
+            fila = QHBoxLayout(); fila.setSpacing(8)
             lbl = QLabel(f"{dia}:")
-            lbl.setFixedWidth(110)
+            lbl.setFixedWidth(85)
             te = QTimeEdit()
             te.setDisplayFormat("HH:mm")
             te.setTime(QTime(18, 0))
-            te.setFixedWidth(130)
-            te.setMinimumHeight(32)
+            te.setMinimumWidth(90)
             self.inp_horas_dia[dia] = te
             fila.addWidget(lbl); fila.addWidget(te); fila.addStretch()
-            rh.addLayout(fila)
+            col_izq.addLayout(fila)
+
+        col_der = QVBoxLayout(); col_der.setSpacing(8)
+        for dia in ["Sábado", "Domingo"]:
+            fila = QHBoxLayout(); fila.setSpacing(8)
+            lbl = QLabel(f"{dia}:")
+            lbl.setFixedWidth(75)
+            te = QTimeEdit()
+            te.setDisplayFormat("HH:mm")
+            te.setTime(QTime(18, 0))
+            te.setMinimumWidth(90)
+            self.inp_horas_dia[dia] = te
+            fila.addWidget(lbl); fila.addWidget(te); fila.addStretch()
+            col_der.addLayout(fila)
+        col_der.addStretch()
+
+        rh.addLayout(col_izq)
+        rh.addLayout(col_der)
 
         # En X minutos
         self.row_mins = QWidget()

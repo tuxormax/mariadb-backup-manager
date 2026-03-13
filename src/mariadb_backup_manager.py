@@ -771,7 +771,7 @@ class MainWindow(QMainWindow):
         lay.addWidget(self.progress)
 
         # Footer
-        lbl_footer = QLabel("v1.0.0 r8 — Creado por: tuxor.max@gmail.com")
+        lbl_footer = QLabel("v1.0.0 r9 — Creado por: tuxor.max@gmail.com")
         lbl_footer.setAlignment(Qt.AlignCenter)
         lbl_footer.setStyleSheet(f"color:{TEXT_MUTED}; font-size:12px; padding:4px;")
         lay.addWidget(lbl_footer)
@@ -1146,13 +1146,13 @@ class MainWindow(QMainWindow):
         self.lbl_countdown_title.setStyleSheet(
             f"font-size:14px; font-weight:bold; color:{WARNING};"
         )
-        self.lbl_countdown.setText(hora_str)
-        self.lbl_countdown.setStyleSheet(
-            f"font-size:36px; font-weight:bold; color:{ACCENT}; letter-spacing:2px;"
-        )
-        self.lbl_shutdown_detail.setText(
+        self.lbl_countdown.setText(
             f"Hoy {dia_hoy} — hora configurada: {hora_str}"
         )
+        self.lbl_countdown.setStyleSheet(
+            f"font-size:15px; font-weight:bold; color:{ACCENT};"
+        )
+        self.lbl_shutdown_detail.setText("")
 
         self._shutdown_timer.start(1000)
         self._tick_countdown()
@@ -1185,7 +1185,7 @@ class MainWindow(QMainWindow):
 
         if remaining < 300:
             self.lbl_countdown.setStyleSheet(
-                f"font-size:36px; font-weight:bold; color:{WARNING}; letter-spacing:2px;"
+                f"font-size:15px; font-weight:bold; color:{WARNING};"
             )
 
     def _cancel_shutdown(self):

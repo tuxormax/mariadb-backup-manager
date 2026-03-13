@@ -636,6 +636,7 @@ class MainWindow(QMainWindow):
         self._init_tray()
         self._refresh_backup_list()
         self._ensure_app_autostart()
+        self._update_service_status()
         QTimer.singleShot(500, self._restore_scheduled_shutdown)
 
     def _load_config(self):
@@ -756,7 +757,7 @@ class MainWindow(QMainWindow):
         lay.addWidget(self.progress)
 
         # Footer
-        lbl_footer = QLabel("v1.0.0 r2 — Creado por: tuxor.max@gmail.com")
+        lbl_footer = QLabel("v1.0.0 r3 — Creado por: tuxor.max@gmail.com")
         lbl_footer.setAlignment(Qt.AlignCenter)
         lbl_footer.setStyleSheet(f"color:{TEXT_MUTED}; font-size:12px; padding:4px;")
         lay.addWidget(lbl_footer)
@@ -969,6 +970,11 @@ class MainWindow(QMainWindow):
         gc.addWidget(self.lbl_shutdown_detail)
         gc.addSpacing(4)
         gc.addWidget(self.prog_countdown)
+
+        self.lbl_svc = QLabel("")
+        self.lbl_svc.setAlignment(Qt.AlignCenter)
+        gc.addWidget(self.lbl_svc)
+
         lay.addWidget(self.grp_countdown)
 
         # Timer interno de cuenta regresiva
@@ -1007,8 +1013,27 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
+    def _services_installed(self):
+        a = Path("/etc/systemd/system/mariadb-backup-inicio.service").exists()
+        b = Path("/etc/systemd/system/mariadb-backup-apagado.service").exists()
+        return a and b
+
     def _schedule_shutdown(self, auto=False):
         backup_first = True
+
+        if not self._services_installed():
+            if not auto:
+                reply = QMessageBox.question(
+                    self, "Servicios no instalados",
+                    "Los servicios de backup automático no están instalados.\n"
+                    "Se necesitan para hacer backup al encender/apagar el equipo.\n\n"
+                    "¿Instalar ahora?",
+                    QMessageBox.Yes | QMessageBox.No
+                )
+                if reply != QMessageBox.Yes:
+                    return
+            if not self._install_services():
+                return
 
         now = datetime.now()
         if self.cmb_shutdown_mode.currentData() == "hora":
@@ -1421,6 +1446,7 @@ class MainWindow(QMainWindow):
             self._save_config(); self._update_service_status()
             QMessageBox.information(self, "✓ Instalado",
                 "Servicios systemd instalados y habilitados.")
+            return True
         else:
             mb = QMessageBox(self)
             mb.setWindowTitle("Instalar manualmente")
@@ -1428,6 +1454,7 @@ class MainWindow(QMainWindow):
                        "Ejecuta el script manualmente en terminal:")
             mb.setDetailedText(f"sudo bash << 'EOF'\n{inst}\nEOF")
             mb.exec_()
+            return False
 
     def _uninstall_services(self):
         if QMessageBox.question(

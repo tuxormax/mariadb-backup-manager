@@ -18,7 +18,7 @@ from PyQt5.QtWidgets import (
     QTableWidgetItem, QTabWidget, QCheckBox, QSpinBox, QFileDialog,
     QMessageBox, QHeaderView, QFrame, QProgressBar, QDialog, QTimeEdit,
     QRadioButton, QButtonGroup, QScrollArea, QComboBox,
-    QSystemTrayIcon, QMenu, QAction
+    QSystemTrayIcon, QMenu, QAction, QInputDialog
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer, QTime
 from PyQt5.QtGui import QColor, QTextCursor, QIcon, QPixmap, QPainter, QFont
@@ -700,6 +700,20 @@ class MainWindow(QMainWindow):
         self.raise_()
 
     def _tray_quit(self):
+        dlg = QInputDialog(self)
+        dlg.setWindowTitle("Confirmar salida")
+        dlg.setLabelText("Ingresa tu contraseña de usuario para salir:")
+        dlg.setTextEchoMode(QLineEdit.Password)
+        if dlg.exec_() != QInputDialog.Accepted:
+            return
+        pwd = dlg.textValue()
+        r = subprocess.run(
+            ["sudo", "-k", "-S", "true"],
+            input=pwd + "\n", capture_output=True, text=True
+        )
+        if r.returncode != 0:
+            QMessageBox.warning(self, "Error", "Contraseña incorrecta.")
+            return
         self._tray.hide()
         QApplication.quit()
 
@@ -757,7 +771,7 @@ class MainWindow(QMainWindow):
         lay.addWidget(self.progress)
 
         # Footer
-        lbl_footer = QLabel("v1.0.0 r7 — Creado por: tuxor.max@gmail.com")
+        lbl_footer = QLabel("v1.0.0 r8 — Creado por: tuxor.max@gmail.com")
         lbl_footer.setAlignment(Qt.AlignCenter)
         lbl_footer.setStyleSheet(f"color:{TEXT_MUTED}; font-size:12px; padding:4px;")
         lay.addWidget(lbl_footer)
@@ -1125,12 +1139,19 @@ class MainWindow(QMainWindow):
         self.btn_schedule.setEnabled(False)
         self.btn_cancel_sd.setEnabled(True)
 
-        self.lbl_countdown_title.setText("⏻  Apagado programado para las")
+        dias_es = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
+        dia_hoy = dias_es[datetime.now().weekday()]
+
+        self.lbl_countdown_title.setText("⏻  Apagado programado")
         self.lbl_countdown_title.setStyleSheet(
             f"font-size:14px; font-weight:bold; color:{WARNING};"
         )
+        self.lbl_countdown.setText(hora_str)
+        self.lbl_countdown.setStyleSheet(
+            f"font-size:36px; font-weight:bold; color:{ACCENT}; letter-spacing:2px;"
+        )
         self.lbl_shutdown_detail.setText(
-            f"Hora objetivo: {hora_str}  |  Backup automático activado"
+            f"Hoy {dia_hoy} — hora configurada: {hora_str}"
         )
 
         self._shutdown_timer.start(1000)
@@ -1145,8 +1166,10 @@ class MainWindow(QMainWindow):
 
         if remaining <= 0:
             self._shutdown_timer.stop()
-            self.lbl_countdown.setText("00:00:00")
-            self.lbl_countdown_title.setText("Apagando...")
+            self.lbl_countdown_title.setText("⏻  Apagando...")
+            self.lbl_countdown_title.setStyleSheet(
+                f"font-size:14px; font-weight:bold; color:{ERROR};"
+            )
             return
 
         if self._backup_before and not self._backup_triggered and remaining <= 120:
@@ -1160,16 +1183,7 @@ class MainWindow(QMainWindow):
                     f'carga las bases primero en la pestaña Backup.</span>'
                 )
 
-        h = int(remaining // 3600)
-        m = int((remaining % 3600) // 60)
-        s = int(remaining % 60)
-        self.lbl_countdown.setText(f"{h:02d}:{m:02d}:{s:02d}")
-
-        if remaining < 60:
-            self.lbl_countdown.setStyleSheet(
-                f"font-size:36px; font-weight:bold; color:{ERROR}; letter-spacing:2px;"
-            )
-        elif remaining < 300:
+        if remaining < 300:
             self.lbl_countdown.setStyleSheet(
                 f"font-size:36px; font-weight:bold; color:{WARNING}; letter-spacing:2px;"
             )

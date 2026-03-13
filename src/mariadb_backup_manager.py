@@ -757,7 +757,7 @@ class MainWindow(QMainWindow):
         lay.addWidget(self.progress)
 
         # Footer
-        lbl_footer = QLabel("v1.0.0 r5 — Creado por: tuxor.max@gmail.com")
+        lbl_footer = QLabel("v1.0.0 r6 — Creado por: tuxor.max@gmail.com")
         lbl_footer.setAlignment(Qt.AlignCenter)
         lbl_footer.setStyleSheet(f"color:{TEXT_MUTED}; font-size:12px; padding:4px;")
         lay.addWidget(lbl_footer)
@@ -899,12 +899,14 @@ class MainWindow(QMainWindow):
         self.inp_horas_dia = {}
         for dia in dias:
             fila = QHBoxLayout()
+            fila.setSpacing(12)
             lbl = QLabel(f"{dia}:")
-            lbl.setFixedWidth(100)
+            lbl.setFixedWidth(110)
             te = QTimeEdit()
             te.setDisplayFormat("HH:mm")
             te.setTime(QTime(18, 0))
-            te.setFixedWidth(100)
+            te.setFixedWidth(130)
+            te.setMinimumHeight(32)
             self.inp_horas_dia[dia] = te
             fila.addWidget(lbl); fila.addWidget(te); fila.addStretch()
             rh.addLayout(fila)

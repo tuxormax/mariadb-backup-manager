@@ -5,7 +5,7 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 VERSION="1.0"
-REVISION="1"
+REVISION="2"
 PKG_NAME="mariadb-backup-manager_v${VERSION}_rev${REVISION}"
 PKG_DIR="/tmp/${PKG_NAME}"
 

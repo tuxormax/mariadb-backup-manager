@@ -545,7 +545,7 @@ class BackupWorker(QThread):
                 "-h", self.config.get("host", "localhost"),
                 "-P", str(self.config.get("port", 3306)),
                 "-u", self.config.get("user", "root"),
-                "--no-create-info", "--skip-triggers",
+                "--add-drop-table", "--skip-triggers",
                 "--complete-insert", "--skip-lock-tables",
                 "--set-charset", "--default-character-set=utf8mb4",
                 db,
@@ -773,7 +773,7 @@ class MainWindow(QMainWindow):
         lay.addWidget(self.progress)
 
         # Footer
-        lbl_footer = QLabel("v1.0.0 r10 — Creado por: tuxor.max@gmail.com")
+        lbl_footer = QLabel("v1.0.0 r11 — Creado por: tuxor.max@gmail.com")
         lbl_footer.setAlignment(Qt.AlignCenter)
         lbl_footer.setStyleSheet(f"color:{TEXT_MUTED}; font-size:12px; padding:4px;")
         lay.addWidget(lbl_footer)
@@ -1014,8 +1014,10 @@ class MainWindow(QMainWindow):
 
         # Timer interno de cuenta regresiva
         self._shutdown_timer  = QTimer(self)
-        self._shutdown_target = None
-        self._shutdown_total  = 0
+        self._shutdown_target  = None
+        self._shutdown_total   = 0
+        self._shutdown_pending = False
+        self._backup_triggered = False
         self._shutdown_timer.timeout.connect(self._tick_countdown)
 
         return w
@@ -1054,22 +1056,6 @@ class MainWindow(QMainWindow):
         return a and b
 
     def _schedule_shutdown(self, auto=False):
-        backup_first = True
-
-        if not self._services_installed():
-            if not auto:
-                reply = QMessageBox.question(
-                    self, "Servicios no instalados",
-                    "Los servicios de backup automático no están instalados.\n"
-                    "Se necesitan para hacer backup al encender/apagar el equipo.\n\n"
-                    "¿Instalar ahora?",
-                    QMessageBox.Yes | QMessageBox.No
-                )
-                if reply != QMessageBox.Yes:
-                    return
-            if not self._install_services():
-                return
-
         now = datetime.now()
         if self.cmb_shutdown_mode.currentData() == "hora":
             dias = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
@@ -1100,29 +1086,6 @@ class MainWindow(QMainWindow):
             if reply != QMessageBox.Yes:
                 return
 
-        shutdown_mins = delta_mins
-
-        r = subprocess.run(
-            ["sudo", "-n", "shutdown", "-h", f"+{shutdown_mins}"],
-            capture_output=True, text=True
-        )
-        if r.returncode != 0:
-            tmp = "/tmp/_mdb_shutdown.sh"
-            with open(tmp, "w") as f:
-                f.write(f"#!/bin/bash\nshutdown -h +{shutdown_mins}\necho DONE\n")
-            os.chmod(tmp, 0o755)
-            r2 = subprocess.run(["pkexec", "bash", tmp],
-                                capture_output=True, text=True)
-            if "DONE" not in r2.stdout and r2.returncode != 0:
-                if not auto:
-                    QMessageBox.critical(
-                        self, "Error",
-                        "No se pudo programar el apagado.\n"
-                        "Ejecuta manualmente:\n\n"
-                        f"  sudo shutdown -h +{shutdown_mins}"
-                    )
-                return
-
         if not auto:
             horas_dia = {dia: te.time().toString("HH:mm")
                          for dia, te in self.inp_horas_dia.items()}
@@ -1133,10 +1096,12 @@ class MainWindow(QMainWindow):
             }
             self._save_config()
 
+        # Solo iniciar cuenta regresiva — NO programar shutdown aún
+        # El apagado se ejecuta DESPUÉS de que termine el backup
         self._shutdown_target = target
         self._shutdown_total  = delta_mins * 60
-        self._backup_before   = backup_first
         self._backup_triggered = False
+        self._shutdown_pending = False
 
         self.btn_schedule.setEnabled(False)
         self.btn_cancel_sd.setEnabled(True)
@@ -1167,24 +1132,25 @@ class MainWindow(QMainWindow):
         now       = datetime.now()
         remaining = (self._shutdown_target - now).total_seconds()
 
-        if remaining <= 0:
-            self._shutdown_timer.stop()
-            self.lbl_countdown_title.setText("⏻  Apagando...")
-            self.lbl_countdown_title.setStyleSheet(
-                f"font-size:14px; font-weight:bold; color:{ERROR};"
-            )
-            return
-
-        if self._backup_before and not self._backup_triggered and remaining <= 120:
+        if remaining <= 0 and not self._backup_triggered:
             self._backup_triggered = True
+            self._shutdown_timer.stop()
+            self.lbl_countdown_title.setText("⏻  Ejecutando backup antes de apagar...")
+            self.lbl_countdown_title.setStyleSheet(
+                f"font-size:14px; font-weight:bold; color:{WARNING};"
+            )
+            self.lbl_countdown.setText("")
             dbs = self._get_selected_dbs()
             if dbs:
+                self._shutdown_pending = True
                 self._run_backup(dbs, "apagado")
             else:
                 self._log(
                     f'<span style="color:{WARNING}">⚠ Backup pre-apagado: '
-                    f'carga las bases primero en la pestaña Backup.</span>'
+                    f'no hay bases seleccionadas. Apagando sin backup...</span>'
                 )
+                self._do_shutdown_now()
+            return
 
         if remaining < 300:
             self.lbl_countdown.setStyleSheet(
@@ -1200,20 +1166,10 @@ class MainWindow(QMainWindow):
         if reply != QMessageBox.Yes:
             return
 
-        r = subprocess.run(
-            ["sudo", "-n", "shutdown", "-c"],
-            capture_output=True, text=True
-        )
-        if r.returncode != 0:
-            tmp = "/tmp/_mdb_cancel_sd.sh"
-            with open(tmp, "w") as f:
-                f.write("#!/bin/bash\nshutdown -c\necho DONE\n")
-            os.chmod(tmp, 0o755)
-            subprocess.run(["pkexec", "bash", tmp], capture_output=True, text=True)
-
         self._shutdown_timer.stop()
         self._shutdown_target  = None
         self._backup_triggered = False
+        self._shutdown_pending = False
 
         self.config["scheduled_shutdown"] = None
         self._save_config()
@@ -1377,6 +1333,31 @@ class MainWindow(QMainWindow):
         self._cleanup_old_backups()
         self._refresh_backup_list()
 
+        # Si hay apagado pendiente, apagar ahora que terminó el backup
+        if self._shutdown_pending:
+            self._shutdown_pending = False
+            self._log(f'<span style="color:{WARNING}"><b>Backup completado. Apagando el sistema...</b></span>')
+            self._do_shutdown_now()
+
+    def _do_shutdown_now(self):
+        self.lbl_countdown_title.setText("⏻  Apagando...")
+        self.lbl_countdown_title.setStyleSheet(
+            f"font-size:14px; font-weight:bold; color:{ERROR};"
+        )
+        self.lbl_countdown.setText("")
+        self.config["scheduled_shutdown"] = None
+        self._save_config()
+        r = subprocess.run(
+            ["sudo", "-n", "shutdown", "-h", "now"],
+            capture_output=True, text=True
+        )
+        if r.returncode != 0:
+            tmp = "/tmp/_mdb_shutdown.sh"
+            with open(tmp, "w") as f:
+                f.write("#!/bin/bash\nshutdown -h now\necho DONE\n")
+            os.chmod(tmp, 0o755)
+            subprocess.run(["pkexec", "bash", tmp], capture_output=True, text=True)
+
     def _log(self, html):
         self.log_output.append(html)
         self.log_output.moveCursor(QTextCursor.End)
@@ -1428,7 +1409,7 @@ class MainWindow(QMainWindow):
             f"  DB=$(echo $DB | xargs); [ -z \"$DB\" ] && continue\n"
             f"  FILE=\"$BACKUP_DIR/${{DB}}_${{FECHA}}_${{TAG}}_${{HORA}}.sql\"\n"
             f"  mysqldump -h \"$DBHOST\" -P \"$DBPORT\" -u \"$DBUSER\" $DBPASS "
-            f"--no-create-info --skip-triggers --complete-insert --skip-lock-tables "
+            f"--add-drop-table --skip-triggers --complete-insert --skip-lock-tables "
             f"--set-charset --default-character-set=utf8mb4 \"$DB\" -r \"$FILE\"\n"
             f"  [ $? -eq 0 ] && echo \"  ✓ $DB\" >> \"$LOG\" "
             f"|| echo \"  ✗ $DB\" >> \"$LOG\"\n"
@@ -1447,6 +1428,7 @@ class MainWindow(QMainWindow):
                  "ExecStart=/usr/local/bin/mariadb_backup.sh arranque\nRemainAfterExit=yes\n\n"
                  "[Install]\nWantedBy=multi-user.target\n")
         svc_st = ("[Unit]\nDescription=Backup MariaDB antes de apagar\n"
+                  "After=mariadb.service mysql.service\n"
                   "Before=shutdown.target reboot.target halt.target\n"
                   "DefaultDependencies=no\n\n"
                   "[Service]\nType=oneshot\n"
@@ -1681,7 +1663,7 @@ def main():
 
     window = MainWindow(start_minimized=args.minimized)
     if args.minimized:
-        window.showMinimized()
+        window.hide()
     else:
         window.show()
     sys.exit(app.exec_())

@@ -73,16 +73,43 @@ QGroupBox {{
 QGroupBox::title {{ subcontrol-origin: margin; left: 10px; color: {ACCENT}; }}
 QLabel, QCheckBox, QRadioButton {{ background: transparent; }}
 QGroupBox QWidget {{ background: transparent; }}
-QLineEdit, QSpinBox, QComboBox {{
+QLineEdit, QSpinBox, QComboBox, QTimeEdit, QDateTimeEdit {{
     background: {INPUT_BG};
     border: 1px solid {BORDER};
     border-radius: 5px;
     padding: 6px 10px;
     color: {TEXT};
 }}
-QLineEdit:focus, QSpinBox:focus, QComboBox:focus {{ border: 1px solid {ACCENT}; }}
+QLineEdit:focus, QSpinBox:focus, QComboBox:focus, QTimeEdit:focus, QDateTimeEdit:focus {{ border: 1px solid {ACCENT}; }}
 QComboBox::drop-down {{ border: none; width: 24px; }}
 QComboBox::down-arrow {{ image: none; border-left: 5px solid transparent; border-right: 5px solid transparent; border-top: 6px solid {TEXT}; }}
+QSpinBox, QTimeEdit, QDateTimeEdit {{ padding-right: 28px; }}
+QSpinBox::up-button, QTimeEdit::up-button, QDateTimeEdit::up-button {{
+    subcontrol-origin: border; subcontrol-position: top right;
+    width: 24px; height: 50%;
+    background: {ACCENT}; border: none;
+    border-top-right-radius: 5px;
+}}
+QSpinBox::up-button:hover, QTimeEdit::up-button:hover, QDateTimeEdit::up-button:hover {{ background: {ACCENT_HOVER}; }}
+QSpinBox::up-button:pressed, QTimeEdit::up-button:pressed, QDateTimeEdit::up-button:pressed {{ background: {ACCENT_HOVER}; }}
+QSpinBox::down-button, QTimeEdit::down-button, QDateTimeEdit::down-button {{
+    subcontrol-origin: border; subcontrol-position: bottom right;
+    width: 24px; height: 50%;
+    background: {ACCENT}; border: none;
+    border-bottom-right-radius: 5px;
+}}
+QSpinBox::down-button:hover, QTimeEdit::down-button:hover, QDateTimeEdit::down-button:hover {{ background: {ACCENT_HOVER}; }}
+QSpinBox::down-button:pressed, QTimeEdit::down-button:pressed, QDateTimeEdit::down-button:pressed {{ background: {ACCENT_HOVER}; }}
+QSpinBox::up-arrow, QTimeEdit::up-arrow, QDateTimeEdit::up-arrow {{
+    image: none; width: 0; height: 0;
+    border-left: 5px solid transparent; border-right: 5px solid transparent;
+    border-bottom: 6px solid white;
+}}
+QSpinBox::down-arrow, QTimeEdit::down-arrow, QDateTimeEdit::down-arrow {{
+    image: none; width: 0; height: 0;
+    border-left: 5px solid transparent; border-right: 5px solid transparent;
+    border-top: 6px solid white;
+}}
 QComboBox QAbstractItemView {{ background: {INPUT_BG}; color: {TEXT}; border: 1px solid {BORDER}; selection-background-color: {ACCENT}; }}
 QPushButton {{
     background: {ACCENT}; color: white; border: none;
@@ -776,7 +803,7 @@ class MainWindow(QMainWindow):
         lay.addWidget(self.progress)
 
         # Footer
-        lbl_footer = QLabel("v1.0.0 r12 — Creado por: tuxor.max@gmail.com")
+        lbl_footer = QLabel("v1.0.0 r13 — Creado por: tuxor.max@gmail.com")
         lbl_footer.setAlignment(Qt.AlignCenter)
         lbl_footer.setStyleSheet(f"color:{TEXT_MUTED}; font-size:12px; padding:4px;")
         lay.addWidget(lbl_footer)
@@ -928,7 +955,8 @@ class MainWindow(QMainWindow):
             te = QTimeEdit()
             te.setDisplayFormat("HH:mm")
             te.setTime(QTime(18, 0))
-            te.setMinimumWidth(90)
+            te.setMinimumWidth(110)
+            te.setMinimumHeight(38)
             self.inp_horas_dia[dia] = te
             fila.addWidget(lbl); fila.addWidget(te); fila.addStretch()
             col_izq.addLayout(fila)
@@ -941,7 +969,8 @@ class MainWindow(QMainWindow):
             te = QTimeEdit()
             te.setDisplayFormat("HH:mm")
             te.setTime(QTime(18, 0))
-            te.setMinimumWidth(90)
+            te.setMinimumWidth(110)
+            te.setMinimumHeight(38)
             self.inp_horas_dia[dia] = te
             fila.addWidget(lbl); fila.addWidget(te); fila.addStretch()
             col_der.addLayout(fila)
@@ -957,7 +986,8 @@ class MainWindow(QMainWindow):
         self.inp_mins = QSpinBox()
         self.inp_mins.setRange(1, 480); self.inp_mins.setValue(30)
         self.inp_mins.setSuffix(" minutos")
-        self.inp_mins.setFixedWidth(140)
+        self.inp_mins.setFixedWidth(160)
+        self.inp_mins.setMinimumHeight(38)
         rm.addWidget(self.inp_mins); rm.addStretch()
         self.row_mins.setVisible(False)
 

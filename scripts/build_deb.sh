@@ -5,7 +5,7 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 VERSION="1.0"
-REVISION="13"
+REVISION="14"
 PKG_NAME="mariadb-backup-manager_v${VERSION}_rev${REVISION}"
 PKG_DIR="/tmp/${PKG_NAME}"
 
@@ -74,6 +74,15 @@ Description: Gestor gráfico de respaldos para MariaDB
  respaldos de bases de datos MariaDB de forma visual e intuitiva.
 EOF
 
+cat > "$PKG_DIR/DEBIAN/preinst" << 'EOF'
+#!/bin/bash
+# Cierra cualquier instancia corriendo para permitir reemplazar archivos
+pkill -f "mariadb_backup_manager.py" 2>/dev/null || true
+pkill -x "mariadb-backup-manager" 2>/dev/null || true
+sleep 0.3
+exit 0
+EOF
+
 cat > "$PKG_DIR/DEBIAN/postinst" << 'EOF'
 #!/bin/bash
 set -e
@@ -90,17 +99,23 @@ EOF
 cat > "$PKG_DIR/DEBIAN/prerm" << 'EOF'
 #!/bin/bash
 set -e
-for home_dir in /home/*; do
-    rm -f "$home_dir/.config/autostart/mariadb_backup_manager.desktop"
-    rm -f "$home_dir/.config/mariadb_backup_manager.json"
-done
-systemctl disable mariadb-backup-inicio.service 2>/dev/null || true
-systemctl disable mariadb-backup-apagado.service 2>/dev/null || true
-rm -f /etc/systemd/system/mariadb-backup-inicio.service
-rm -f /etc/systemd/system/mariadb-backup-apagado.service
-rm -f /usr/local/bin/mariadb_backup.sh
-rm -f /etc/sudoers.d/mariadb-backup-manager
-systemctl daemon-reload 2>/dev/null || true
+# Cierra instancias corriendo antes de remover/actualizar
+pkill -f "mariadb_backup_manager.py" 2>/dev/null || true
+pkill -x "mariadb-backup-manager" 2>/dev/null || true
+# Solo borrar config y servicios al desinstalar, NO al actualizar
+if [ "$1" = "remove" ] || [ "$1" = "purge" ]; then
+    for home_dir in /home/*; do
+        rm -f "$home_dir/.config/autostart/mariadb_backup_manager.desktop"
+        rm -f "$home_dir/.config/mariadb_backup_manager.json"
+    done
+    systemctl disable mariadb-backup-inicio.service 2>/dev/null || true
+    systemctl disable mariadb-backup-apagado.service 2>/dev/null || true
+    rm -f /etc/systemd/system/mariadb-backup-inicio.service
+    rm -f /etc/systemd/system/mariadb-backup-apagado.service
+    rm -f /usr/local/bin/mariadb_backup.sh
+    rm -f /etc/sudoers.d/mariadb-backup-manager
+    systemctl daemon-reload 2>/dev/null || true
+fi
 exit 0
 EOF
 
@@ -112,6 +127,7 @@ command -v update-desktop-database &>/dev/null && \
 exit 0
 EOF
 
+chmod 755 "$PKG_DIR/DEBIAN/preinst"
 chmod 755 "$PKG_DIR/DEBIAN/postinst"
 chmod 755 "$PKG_DIR/DEBIAN/prerm"
 chmod 755 "$PKG_DIR/DEBIAN/postrm"

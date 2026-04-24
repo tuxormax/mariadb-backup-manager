@@ -18,7 +18,7 @@ from PyQt5.QtWidgets import (
     QTableWidgetItem, QTabWidget, QCheckBox, QSpinBox, QFileDialog,
     QMessageBox, QHeaderView, QFrame, QProgressBar, QDialog, QTimeEdit,
     QRadioButton, QButtonGroup, QScrollArea, QComboBox,
-    QSystemTrayIcon, QMenu, QAction, QInputDialog
+    QSystemTrayIcon, QMenu, QAction, QInputDialog, QAbstractSpinBox
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer, QTime
 from PyQt5.QtGui import QColor, QTextCursor, QIcon, QPixmap, QPainter, QFont
@@ -83,33 +83,6 @@ QLineEdit, QSpinBox, QComboBox, QTimeEdit, QDateTimeEdit {{
 QLineEdit:focus, QSpinBox:focus, QComboBox:focus, QTimeEdit:focus, QDateTimeEdit:focus {{ border: 1px solid {ACCENT}; }}
 QComboBox::drop-down {{ border: none; width: 24px; }}
 QComboBox::down-arrow {{ image: none; border-left: 5px solid transparent; border-right: 5px solid transparent; border-top: 6px solid {TEXT}; }}
-QSpinBox, QTimeEdit, QDateTimeEdit {{ padding-right: 28px; }}
-QSpinBox::up-button, QTimeEdit::up-button, QDateTimeEdit::up-button {{
-    subcontrol-origin: border; subcontrol-position: top right;
-    width: 24px; height: 50%;
-    background: {ACCENT}; border: none;
-    border-top-right-radius: 5px;
-}}
-QSpinBox::up-button:hover, QTimeEdit::up-button:hover, QDateTimeEdit::up-button:hover {{ background: {ACCENT_HOVER}; }}
-QSpinBox::up-button:pressed, QTimeEdit::up-button:pressed, QDateTimeEdit::up-button:pressed {{ background: {ACCENT_HOVER}; }}
-QSpinBox::down-button, QTimeEdit::down-button, QDateTimeEdit::down-button {{
-    subcontrol-origin: border; subcontrol-position: bottom right;
-    width: 24px; height: 50%;
-    background: {ACCENT}; border: none;
-    border-bottom-right-radius: 5px;
-}}
-QSpinBox::down-button:hover, QTimeEdit::down-button:hover, QDateTimeEdit::down-button:hover {{ background: {ACCENT_HOVER}; }}
-QSpinBox::down-button:pressed, QTimeEdit::down-button:pressed, QDateTimeEdit::down-button:pressed {{ background: {ACCENT_HOVER}; }}
-QSpinBox::up-arrow, QTimeEdit::up-arrow, QDateTimeEdit::up-arrow {{
-    image: none; width: 0; height: 0;
-    border-left: 5px solid transparent; border-right: 5px solid transparent;
-    border-bottom: 6px solid white;
-}}
-QSpinBox::down-arrow, QTimeEdit::down-arrow, QDateTimeEdit::down-arrow {{
-    image: none; width: 0; height: 0;
-    border-left: 5px solid transparent; border-right: 5px solid transparent;
-    border-top: 6px solid white;
-}}
 QComboBox QAbstractItemView {{ background: {INPUT_BG}; color: {TEXT}; border: 1px solid {BORDER}; selection-background-color: {ACCENT}; }}
 QPushButton {{
     background: {ACCENT}; color: white; border: none;
@@ -658,7 +631,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self._start_minimized = start_minimized
         self.setWindowTitle(APP_NAME)
-        self.setMinimumSize(920, 700)
+        self.setMinimumSize(920, 780)
         self.config = self._load_config()
         self._init_ui()
         self._init_tray()
@@ -803,7 +776,7 @@ class MainWindow(QMainWindow):
         lay.addWidget(self.progress)
 
         # Footer
-        lbl_footer = QLabel("v1.0.0 r13 — Creado por: tuxor.max@gmail.com")
+        lbl_footer = QLabel("v1.0.0 r14 — Creado por: tuxor.max@gmail.com")
         lbl_footer.setAlignment(Qt.AlignCenter)
         lbl_footer.setStyleSheet(f"color:{TEXT_MUTED}; font-size:12px; padding:4px;")
         lay.addWidget(lbl_footer)
@@ -923,6 +896,34 @@ class MainWindow(QMainWindow):
         lay.addWidget(self.lbl_conn_status)
         return w
 
+    def _make_time_edit(self, initial=QTime(18, 0)):
+        """QTimeEdit con botones +/− grandes al lado para subir/bajar la hora."""
+        te = QTimeEdit()
+        te.setDisplayFormat("HH:mm")
+        te.setTime(initial)
+        te.setButtonSymbols(QAbstractSpinBox.NoButtons)
+        te.setFixedWidth(72)
+        te.setFixedHeight(32)
+        te.setAlignment(Qt.AlignCenter)
+
+        btn_style = (
+            f"QPushButton {{ background:{ACCENT}; color:white; border:none; "
+            f"border-radius:5px; font-size:16px; font-weight:bold; padding:0; }}"
+            f"QPushButton:hover {{ background:{ACCENT_HOVER}; }}"
+        )
+        btn_up = QPushButton("+"); btn_up.setFixedSize(32, 32); btn_up.setStyleSheet(btn_style)
+        btn_dn = QPushButton("−"); btn_dn.setFixedSize(32, 32); btn_dn.setStyleSheet(btn_style)
+        btn_up.setAutoRepeat(True); btn_up.setAutoRepeatInterval(120)
+        btn_dn.setAutoRepeat(True); btn_dn.setAutoRepeatInterval(120)
+        btn_up.clicked.connect(lambda: te.setTime(te.time().addSecs(1800)))
+        btn_dn.clicked.connect(lambda: te.setTime(te.time().addSecs(-1800)))
+
+        wrap = QWidget()
+        wrap.setFixedHeight(34)
+        lay = QHBoxLayout(wrap); lay.setContentsMargins(0, 0, 0, 0); lay.setSpacing(4)
+        lay.addWidget(btn_dn); lay.addWidget(te); lay.addWidget(btn_up)
+        return te, wrap
+
     # ── Tab Apagado ──────────────────────────────────────────────────────────
     def _tab_apagado(self):
         w = QWidget(); lay = QVBoxLayout(w)
@@ -930,6 +931,7 @@ class MainWindow(QMainWindow):
 
         # ── Modo de apagado ─────────────────────────────────────────────────
         grp_modo = QGroupBox("Modo de apagado")
+        grp_modo.setMinimumHeight(320)
         gm = QVBoxLayout(grp_modo); gm.setSpacing(12)
 
         row_mode = QHBoxLayout()
@@ -947,33 +949,28 @@ class MainWindow(QMainWindow):
         rh = QHBoxLayout(self.row_hora); rh.setContentsMargins(0, 4, 0, 4); rh.setSpacing(20)
         self.inp_horas_dia = {}
 
-        col_izq = QVBoxLayout(); col_izq.setSpacing(8)
+        col_izq = QVBoxLayout(); col_izq.setSpacing(12)
         for dia in ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes"]:
-            fila = QHBoxLayout(); fila.setSpacing(8)
+            fila_w = QWidget(); fila_w.setFixedHeight(38)
+            fila = QHBoxLayout(fila_w); fila.setContentsMargins(0, 0, 0, 0); fila.setSpacing(6)
+            lbl = QLabel(f"{dia}:")
+            lbl.setFixedWidth(95)
+            te, wrap = self._make_time_edit()
+            self.inp_horas_dia[dia] = te
+            fila.addWidget(lbl); fila.addWidget(wrap); fila.addStretch()
+            col_izq.addWidget(fila_w)
+        col_izq.addStretch()
+
+        col_der = QVBoxLayout(); col_der.setSpacing(12)
+        for dia in ["Sábado", "Domingo"]:
+            fila_w = QWidget(); fila_w.setFixedHeight(38)
+            fila = QHBoxLayout(fila_w); fila.setContentsMargins(0, 0, 0, 0); fila.setSpacing(6)
             lbl = QLabel(f"{dia}:")
             lbl.setFixedWidth(85)
-            te = QTimeEdit()
-            te.setDisplayFormat("HH:mm")
-            te.setTime(QTime(18, 0))
-            te.setMinimumWidth(110)
-            te.setMinimumHeight(38)
+            te, wrap = self._make_time_edit()
             self.inp_horas_dia[dia] = te
-            fila.addWidget(lbl); fila.addWidget(te); fila.addStretch()
-            col_izq.addLayout(fila)
-
-        col_der = QVBoxLayout(); col_der.setSpacing(8)
-        for dia in ["Sábado", "Domingo"]:
-            fila = QHBoxLayout(); fila.setSpacing(8)
-            lbl = QLabel(f"{dia}:")
-            lbl.setFixedWidth(75)
-            te = QTimeEdit()
-            te.setDisplayFormat("HH:mm")
-            te.setTime(QTime(18, 0))
-            te.setMinimumWidth(110)
-            te.setMinimumHeight(38)
-            self.inp_horas_dia[dia] = te
-            fila.addWidget(lbl); fila.addWidget(te); fila.addStretch()
-            col_der.addLayout(fila)
+            fila.addWidget(lbl); fila.addWidget(wrap); fila.addStretch()
+            col_der.addWidget(fila_w)
         col_der.addStretch()
 
         rh.addLayout(col_izq)
@@ -981,14 +978,29 @@ class MainWindow(QMainWindow):
 
         # En X minutos
         self.row_mins = QWidget()
-        rm = QHBoxLayout(self.row_mins); rm.setContentsMargins(0, 0, 0, 0)
+        rm = QHBoxLayout(self.row_mins); rm.setContentsMargins(0, 0, 0, 0); rm.setSpacing(6)
         rm.addWidget(QLabel("Apagar en:"))
         self.inp_mins = QSpinBox()
         self.inp_mins.setRange(1, 480); self.inp_mins.setValue(30)
         self.inp_mins.setSuffix(" minutos")
-        self.inp_mins.setFixedWidth(160)
+        self.inp_mins.setButtonSymbols(QAbstractSpinBox.NoButtons)
+        self.inp_mins.setFixedWidth(120)
         self.inp_mins.setMinimumHeight(38)
-        rm.addWidget(self.inp_mins); rm.addStretch()
+        self.inp_mins.setAlignment(Qt.AlignCenter)
+
+        btn_mins_up = QPushButton("+"); btn_mins_up.setFixedSize(38, 38)
+        btn_mins_dn = QPushButton("−"); btn_mins_dn.setFixedSize(38, 38)
+        for b in (btn_mins_up, btn_mins_dn):
+            b.setStyleSheet(
+                f"QPushButton {{ background:{ACCENT}; color:white; border:none; "
+                f"border-radius:5px; font-size:18px; font-weight:bold; padding:0; }}"
+                f"QPushButton:hover {{ background:{ACCENT_HOVER}; }}"
+            )
+            b.setAutoRepeat(True); b.setAutoRepeatInterval(120)
+        btn_mins_up.clicked.connect(lambda: self.inp_mins.setValue(self.inp_mins.value() + 5))
+        btn_mins_dn.clicked.connect(lambda: self.inp_mins.setValue(self.inp_mins.value() - 5))
+
+        rm.addWidget(btn_mins_dn); rm.addWidget(self.inp_mins); rm.addWidget(btn_mins_up); rm.addStretch()
         self.row_mins.setVisible(False)
 
         gm.addWidget(self.row_hora)

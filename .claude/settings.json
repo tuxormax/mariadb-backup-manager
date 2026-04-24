@@ -1,0 +1,6 @@
+{
+  "statusLine": {
+    "type": "command",
+    "command": "printf '\\033]0;MariaDB Backup\\007\\033[97;48;2;192;141;76m MariaDB Backup \\033[0m'"
+  }
+}

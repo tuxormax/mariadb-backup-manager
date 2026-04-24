@@ -90,8 +90,9 @@ QPushButton {{
 }}
 QPushButton:hover {{ background: {ACCENT_HOVER}; }}
 QPushButton:disabled {{ background: {BORDER}; color: {TEXT_MUTED}; }}
-QPushButton#btnDanger {{ background: {ERROR}; }}
-QPushButton#btnDanger:hover {{ background: #ff6e6e; }}
+QPushButton#btnDanger {{ background: {ERROR}; color: white; }}
+QPushButton#btnDanger:hover {{ background: #ff6e6e; color: white; }}
+QPushButton#btnDanger:disabled {{ background: {ERROR}; color: white; }}
 QPushButton#btnSuccess {{ background: #2d8a4e; }}
 QPushButton#btnSuccess:hover {{ background: #3aaa62; }}
 QPushButton#btnSecondary {{
@@ -638,6 +639,8 @@ class MainWindow(QMainWindow):
         self._ensure_app_autostart()
         self._update_service_status()
         QTimer.singleShot(500, self._restore_scheduled_shutdown)
+        if self.config.get("user") and self.config.get("password"):
+            QTimer.singleShot(100, self._test_connection)
 
     def _load_config(self):
         defaults = {
@@ -763,7 +766,7 @@ class MainWindow(QMainWindow):
 
         tabs = QTabWidget()
         tabs.addTab(self._tab_conexion(),  "🔌  Conexión")
-        tabs.addTab(self._tab_backup(),    "🗄  Backup")
+        tabs.addTab(self._tab_backup(),    "💾  Backup")
         tabs.addTab(self._tab_apagado(),   "⏱  Apagado")
         tabs.addTab(self._tab_historial(), "📂  Historial")
         lay.addWidget(tabs)
@@ -773,7 +776,7 @@ class MainWindow(QMainWindow):
         lay.addWidget(self.progress)
 
         # Footer
-        lbl_footer = QLabel("v1.0.0 r11 — Creado por: tuxor.max@gmail.com")
+        lbl_footer = QLabel("v1.0.0 r12 — Creado por: tuxor.max@gmail.com")
         lbl_footer.setAlignment(Qt.AlignCenter)
         lbl_footer.setStyleSheet(f"color:{TEXT_MUTED}; font-size:12px; padding:4px;")
         lay.addWidget(lbl_footer)
@@ -886,6 +889,10 @@ class MainWindow(QMainWindow):
         btns.addWidget(btn_test); btns.addWidget(btn_save)
         lay.addLayout(btns)
         self.lbl_conn_status = QLabel("")
+        self.lbl_conn_status.setTextFormat(Qt.RichText)
+        self.lbl_conn_status.setWordWrap(True)
+        self.lbl_conn_status.setStyleSheet("padding:10px 4px; font-size:14px;")
+        self._set_conn_status(None, "● No verificada — pulsa \"Probar conexión\"")
         lay.addWidget(self.lbl_conn_status)
         return w
 
@@ -970,8 +977,19 @@ class MainWindow(QMainWindow):
         self.btn_cancel_sd.setEnabled(False)
         self.btn_cancel_sd.clicked.connect(self._cancel_shutdown)
 
+        self.btn_install_svc = QPushButton("🔧  Instalar servicios")
+        self.btn_install_svc.setObjectName("btnSuccess")
+        self.btn_install_svc.setMinimumHeight(42)
+        self.btn_install_svc.clicked.connect(self._install_services)
+        self.btn_uninstall_svc = QPushButton("🗑  Desinstalar servicios")
+        self.btn_uninstall_svc.setObjectName("btnDanger")
+        self.btn_uninstall_svc.setMinimumHeight(42)
+        self.btn_uninstall_svc.clicked.connect(self._uninstall_services)
+
         row_btns.addWidget(self.btn_schedule)
         row_btns.addWidget(self.btn_cancel_sd)
+        row_btns.addWidget(self.btn_install_svc)
+        row_btns.addWidget(self.btn_uninstall_svc)
         lay.addLayout(row_btns)
 
         # ── Panel de estado ────────────────────────────────────────────────
@@ -1319,6 +1337,10 @@ class MainWindow(QMainWindow):
             f"<b>══ Inicio de backup [{tag}] "
             f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} ══</b>"
         )
+        self._log(
+            f'Respaldando <b>{len(dbs)}</b> base(s) de datos: '
+            f'<span style="color:{ACCENT}">{", ".join(dbs)}</span>'
+        )
         worker = BackupWorker(self.config, dbs, self.config["backup_dir"], tag)
         worker.log_signal.connect(self._log)
         worker.progress_signal.connect(self.progress.setValue)
@@ -1363,6 +1385,17 @@ class MainWindow(QMainWindow):
         self.log_output.moveCursor(QTextCursor.End)
 
     # ── Conexión ─────────────────────────────────────────────────────────────
+    def _set_conn_status(self, ok, text):
+        if ok is True:
+            color = SUCCESS
+        elif ok is False:
+            color = ERROR
+        else:
+            color = TEXT_MUTED
+        self.lbl_conn_status.setText(
+            f'<span style="color:{color}">{text}</span>'
+        )
+
     def _save_connection(self):
         self.config.update({
             "host": self.inp_host.text(), "port": self.inp_port.value(),
@@ -1370,18 +1403,28 @@ class MainWindow(QMainWindow):
             "retention_days": self.inp_retention.value(),
         })
         self._save_config()
-        QMessageBox.information(self, "Guardado", "Configuración guardada.")
+        self._test_connection()
 
     def _test_connection(self):
-        self.lbl_conn_status.setText("Probando conexión...")
+        self._set_conn_status(None, "● Probando conexión…")
         QApplication.processEvents()
-        ok, msg = _test_mariadb_connection({
+        cfg = {
             "host": self.inp_host.text(), "port": self.inp_port.value(),
             "user": self.inp_user.text(), "password": self.inp_dbpass.text(),
-        })
-        self.lbl_conn_status.setText(
-            f'<span style="color:{SUCCESS if ok else ERROR}">{msg}</span>'
-        )
+        }
+        ok, msg = _test_mariadb_connection(cfg)
+        hora = datetime.now().strftime("%H:%M:%S")
+        if ok:
+            text = (f'● Activa — conectado a {cfg["host"]}:{cfg["port"]} '
+                    f'como <b>{cfg["user"]}</b> '
+                    f'<span style="color:{TEXT_MUTED}">'
+                    f'(última verificación: {hora})</span>')
+        else:
+            limpio = msg.lstrip("✗ ").strip() or "error desconocido"
+            text = (f'● Sin conexión — {limpio} '
+                    f'<span style="color:{TEXT_MUTED}">'
+                    f'(última verificación: {hora})</span>')
+        self._set_conn_status(ok, text)
 
     # ── Servicios systemd ────────────────────────────────────────────────────
     def _mk_backup_sh(self):
@@ -1457,8 +1500,6 @@ class MainWindow(QMainWindow):
             self.config["autostart_enabled"] = True
             self.config["shutdown_enabled"]  = True
             self._save_config(); self._update_service_status()
-            QMessageBox.information(self, "✓ Instalado",
-                "Servicios systemd instalados y habilitados.")
             return True
         else:
             mb = QMessageBox(self)
@@ -1491,7 +1532,6 @@ class MainWindow(QMainWindow):
             self.config["autostart_enabled"] = False
             self.config["shutdown_enabled"]  = False
             self._save_config(); self._update_service_status()
-            QMessageBox.information(self, "Desinstalado", "Servicios eliminados.")
 
     def _autostart_path(self):
         return os.path.expanduser(
@@ -1527,6 +1567,10 @@ class MainWindow(QMainWindow):
             self.lbl_svc_apagado.setText(f'<span style="color:{SUCCESS}">✓ Servicio backup al apagar — Instalado</span>')
         else:
             self.lbl_svc_apagado.setText(f'<span style="color:{ERROR}">✗ Servicio backup al apagar — No instalado</span>')
+        instalados = a and b
+        if hasattr(self, "btn_install_svc"):
+            self.btn_install_svc.setVisible(not instalados)
+            self.btn_uninstall_svc.setVisible(instalados)
         self._update_today_schedule()
 
     def _update_today_schedule(self):

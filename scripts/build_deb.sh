@@ -5,7 +5,7 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 VERSION="1.0"
-REVISION="14"
+REVISION="15"
 PKG_NAME="mariadb-backup-manager_v${VERSION}_rev${REVISION}"
 PKG_DIR="/tmp/${PKG_NAME}"
 
@@ -61,14 +61,18 @@ cat > "$PKG_DIR/usr/share/doc/mariadb-backup-manager/copyright" << 'EOF'
 MariaDB Backup Manager — MIT License
 EOF
 
+INSTALLED_SIZE=$(du -sk --exclude=DEBIAN "$PKG_DIR" | cut -f1)
+
 cat > "$PKG_DIR/DEBIAN/control" << EOF
 Package: mariadb-backup-manager
 Version: ${VERSION}.${REVISION}
 Section: database
 Priority: optional
 Architecture: all
+Installed-Size: ${INSTALLED_SIZE}
 Depends: python3 (>= 3.8), python3-pyqt5, mariadb-client
-Maintainer: MariaDB Backup Manager <admin@localhost>
+Maintainer: BSG <tuxor.max@gmail.com>
+Homepage: https://github.com/tuxormax/mariadb-backup-manager
 Description: Gestor gráfico de respaldos para MariaDB
  Aplicación de escritorio para Linux que permite gestionar y programar
  respaldos de bases de datos MariaDB de forma visual e intuitiva.

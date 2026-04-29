@@ -18,13 +18,61 @@ from PyQt5.QtWidgets import (
     QTableWidgetItem, QTabWidget, QCheckBox, QSpinBox, QFileDialog,
     QMessageBox, QHeaderView, QFrame, QProgressBar, QDialog, QTimeEdit,
     QRadioButton, QButtonGroup, QScrollArea, QComboBox,
-    QSystemTrayIcon, QMenu, QAction, QInputDialog, QAbstractSpinBox
+    QSystemTrayIcon, QMenu, QAction, QInputDialog, QAbstractSpinBox,
+    QLayout, QSizePolicy
 )
-from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer, QTime
+from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer, QTime, QSize, QPoint, QRect
 from PyQt5.QtGui import QColor, QTextCursor, QIcon, QPixmap, QPainter, QFont
+
+
+class FlowLayout(QLayout):
+    """Layout que reacomoda widgets en filas según el ancho disponible."""
+    def __init__(self, parent=None, margin=0, h_spacing=10, v_spacing=10):
+        super().__init__(parent)
+        if parent is not None:
+            self.setContentsMargins(margin, margin, margin, margin)
+        self._h_space = h_spacing
+        self._v_space = v_spacing
+        self._items = []
+
+    def addItem(self, item): self._items.append(item)
+    def count(self): return len(self._items)
+    def itemAt(self, i): return self._items[i] if 0 <= i < len(self._items) else None
+    def takeAt(self, i): return self._items.pop(i) if 0 <= i < len(self._items) else None
+    def expandingDirections(self): return Qt.Orientations(Qt.Orientation(0))
+    def hasHeightForWidth(self): return True
+    def heightForWidth(self, w): return self._layout(QRect(0, 0, w, 0), True)
+    def setGeometry(self, r): super().setGeometry(r); self._layout(r, False)
+    def sizeHint(self): return self.minimumSize()
+
+    def minimumSize(self):
+        s = QSize()
+        for it in self._items:
+            s = s.expandedTo(it.minimumSize())
+        m = self.contentsMargins()
+        return s + QSize(m.left() + m.right(), m.top() + m.bottom())
+
+    def _layout(self, rect, test):
+        x, y = rect.x(), rect.y()
+        line_h = 0
+        for it in self._items:
+            sz = it.sizeHint()
+            next_x = x + sz.width() + self._h_space
+            if next_x - self._h_space > rect.right() and line_h > 0:
+                x = rect.x()
+                y = y + line_h + self._v_space
+                next_x = x + sz.width() + self._h_space
+                line_h = 0
+            if not test:
+                it.setGeometry(QRect(QPoint(x, y), sz))
+            x = next_x
+            line_h = max(line_h, sz.height())
+        return y + line_h - rect.y()
 
 # ─── Constantes ────────────────────────────────────────────────────────────────
 APP_NAME     = "MariaDB Backup Manager"
+APP_VERSION  = "1.0"
+APP_REVISION = "17"  # build_deb.sh y el footer leen de aquí — fuente única de la versión
 CONFIG_FILE  = os.path.expanduser("~/.config/mariadb_backup_manager.json")
 CURRENT_USER = os.environ.get("USER", os.environ.get("LOGNAME", "user"))
 
@@ -638,9 +686,40 @@ class MainWindow(QMainWindow):
         self._refresh_backup_list()
         self._ensure_app_autostart()
         self._update_service_status()
+        self._log_startup_status()
         QTimer.singleShot(500, self._restore_scheduled_shutdown)
         if self.config.get("user") and self.config.get("password"):
             QTimer.singleShot(100, self._test_connection)
+
+    def _log_startup_status(self):
+        a = Path("/etc/systemd/system/mariadb-backup-inicio.service").exists()
+        b = Path("/etc/systemd/system/mariadb-backup-apagado.service").exists()
+        s = Path("/etc/sudoers.d/mariadb-backup-manager").exists()
+        self._log(f'<b>══ Estado al iniciar {datetime.now().strftime("%Y-%m-%d %H:%M:%S")} ══</b>')
+        ok = lambda x: f'<span style="color:{SUCCESS}">✓</span>' if x else f'<span style="color:{ERROR}">✗</span>'
+        self._log(f'{ok(a)} Servicio systemd backup-al-encender: '
+                  f'{"instalado" if a else "NO instalado"}')
+        self._log(f'{ok(b)} Servicio systemd backup-al-apagar: '
+                  f'{"instalado" if b else "NO instalado"}')
+        self._log(f'{ok(s)} Regla sudoers (apagado sin contraseña): '
+                  f'{"instalada" if s else "NO instalada"}')
+        sched = self.config.get("scheduled_shutdown")
+        if sched:
+            mode = sched.get("mode", "hora")
+            if mode == "hora":
+                dias_es = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
+                hoy = dias_es[datetime.now().weekday()]
+                hora = sched.get("horas_dia", {}).get(hoy, "")
+                if hora:
+                    self._log(f'<span style="color:{ACCENT}">⏻ Apagado programado hoy ({hoy}) '
+                              f'a las <b>{hora}</b></span>')
+                else:
+                    self._log(f'<span style="color:{TEXT_MUTED}">⏻ Sin apagado configurado para hoy</span>')
+            else:
+                mins = sched.get("mins", 0)
+                self._log(f'<span style="color:{ACCENT}">⏻ Apagado programado en {mins} min</span>')
+        else:
+            self._log(f'<span style="color:{TEXT_MUTED}">⏻ No hay apagado programado</span>')
 
     def _load_config(self):
         defaults = {
@@ -651,6 +730,7 @@ class MainWindow(QMainWindow):
             "autostart_enabled": False, "shutdown_enabled": False,
             "first_run_done": False,
             "scheduled_shutdown": None,
+            "selected_dbs": None,
         }
         if os.path.exists(CONFIG_FILE):
             try:
@@ -776,7 +856,7 @@ class MainWindow(QMainWindow):
         lay.addWidget(self.progress)
 
         # Footer
-        lbl_footer = QLabel("v1.0.0 r15 — Creado por: tuxor.max@gmail.com")
+        lbl_footer = QLabel(f"v{APP_VERSION} r{APP_REVISION} — Creado por: tuxor.max@gmail.com")
         lbl_footer.setAlignment(Qt.AlignCenter)
         lbl_footer.setStyleSheet(f"color:{TEXT_MUTED}; font-size:12px; padding:4px;")
         lay.addWidget(lbl_footer)
@@ -897,41 +977,51 @@ class MainWindow(QMainWindow):
         return w
 
     def _make_time_edit(self, initial=QTime(18, 0)):
-        """QTimeEdit con botones +/− grandes al lado para subir/bajar la hora."""
+        """QTimeEdit con botones [−] [HH:MM] [+] al lado para subir/bajar 30 min."""
         te = QTimeEdit()
         te.setDisplayFormat("HH:mm")
         te.setTime(initial)
         te.setButtonSymbols(QAbstractSpinBox.NoButtons)
         te.setFixedWidth(72)
-        te.setFixedHeight(32)
+        te.setFixedHeight(34)
         te.setAlignment(Qt.AlignCenter)
+        # Override del QSS global: sin padding-right (no hay botones internos)
+        te.setStyleSheet("padding: 0px; padding-left: 4px; padding-right: 4px;")
 
         btn_style = (
             f"QPushButton {{ background:{ACCENT}; color:white; border:none; "
             f"border-radius:5px; font-size:16px; font-weight:bold; padding:0; }}"
             f"QPushButton:hover {{ background:{ACCENT_HOVER}; }}"
         )
-        btn_up = QPushButton("+"); btn_up.setFixedSize(32, 32); btn_up.setStyleSheet(btn_style)
-        btn_dn = QPushButton("−"); btn_dn.setFixedSize(32, 32); btn_dn.setStyleSheet(btn_style)
+        btn_up = QPushButton("+"); btn_up.setFixedSize(34, 34); btn_up.setStyleSheet(btn_style)
+        btn_dn = QPushButton("−"); btn_dn.setFixedSize(34, 34); btn_dn.setStyleSheet(btn_style)
         btn_up.setAutoRepeat(True); btn_up.setAutoRepeatInterval(120)
         btn_dn.setAutoRepeat(True); btn_dn.setAutoRepeatInterval(120)
         btn_up.clicked.connect(lambda: te.setTime(te.time().addSecs(1800)))
         btn_dn.clicked.connect(lambda: te.setTime(te.time().addSecs(-1800)))
 
         wrap = QWidget()
-        wrap.setFixedHeight(34)
+        wrap.setFixedHeight(38)
         lay = QHBoxLayout(wrap); lay.setContentsMargins(0, 0, 0, 0); lay.setSpacing(4)
         lay.addWidget(btn_dn); lay.addWidget(te); lay.addWidget(btn_up)
         return te, wrap
 
     # ── Tab Apagado ──────────────────────────────────────────────────────────
     def _tab_apagado(self):
-        w = QWidget(); lay = QVBoxLayout(w)
+        outer = QWidget(); outer_lay = QVBoxLayout(outer)
+        outer_lay.setContentsMargins(0, 0, 0, 0)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setFrameShape(QFrame.NoFrame)
+        w = QWidget()
+        scroll.setWidget(w)
+        outer_lay.addWidget(scroll)
+        lay = QVBoxLayout(w)
         lay.setAlignment(Qt.AlignTop); lay.setSpacing(12)
 
         # ── Modo de apagado ─────────────────────────────────────────────────
         grp_modo = QGroupBox("Modo de apagado")
-        grp_modo.setMinimumHeight(320)
         gm = QVBoxLayout(grp_modo); gm.setSpacing(12)
 
         row_mode = QHBoxLayout()
@@ -944,37 +1034,24 @@ class MainWindow(QMainWindow):
         row_mode.addWidget(self.cmb_shutdown_mode); row_mode.addStretch()
         gm.addLayout(row_mode)
 
-        # Hora específica por día de la semana (2 columnas)
+        # Hora específica por día de la semana — FlowLayout responsive
+        # (2/3/4 columnas según el ancho disponible, scroll vertical en ventanas chicas)
         self.row_hora = QWidget()
-        rh = QHBoxLayout(self.row_hora); rh.setContentsMargins(0, 4, 0, 4); rh.setSpacing(20)
+        rh = FlowLayout(self.row_hora, margin=4, h_spacing=24, v_spacing=12)
         self.inp_horas_dia = {}
 
-        col_izq = QVBoxLayout(); col_izq.setSpacing(12)
-        for dia in ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes"]:
-            fila_w = QWidget(); fila_w.setFixedHeight(38)
-            fila = QHBoxLayout(fila_w); fila.setContentsMargins(0, 0, 0, 0); fila.setSpacing(6)
+        for dia in ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]:
+            cell = QWidget()
+            cell.setFixedHeight(42)
+            fila = QHBoxLayout(cell)
+            fila.setContentsMargins(0, 0, 0, 0); fila.setSpacing(8)
             lbl = QLabel(f"{dia}:")
             lbl.setFixedWidth(95)
             te, wrap = self._make_time_edit()
             self.inp_horas_dia[dia] = te
-            fila.addWidget(lbl); fila.addWidget(wrap); fila.addStretch()
-            col_izq.addWidget(fila_w)
-        col_izq.addStretch()
-
-        col_der = QVBoxLayout(); col_der.setSpacing(12)
-        for dia in ["Sábado", "Domingo"]:
-            fila_w = QWidget(); fila_w.setFixedHeight(38)
-            fila = QHBoxLayout(fila_w); fila.setContentsMargins(0, 0, 0, 0); fila.setSpacing(6)
-            lbl = QLabel(f"{dia}:")
-            lbl.setFixedWidth(85)
-            te, wrap = self._make_time_edit()
-            self.inp_horas_dia[dia] = te
-            fila.addWidget(lbl); fila.addWidget(wrap); fila.addStretch()
-            col_der.addWidget(fila_w)
-        col_der.addStretch()
-
-        rh.addLayout(col_izq)
-        rh.addLayout(col_der)
+            fila.addWidget(lbl); fila.addWidget(wrap)
+            cell.setMinimumWidth(230)
+            rh.addWidget(cell)
 
         # En X minutos
         self.row_mins = QWidget()
@@ -1080,7 +1157,7 @@ class MainWindow(QMainWindow):
         self._backup_triggered = False
         self._shutdown_timer.timeout.connect(self._tick_countdown)
 
-        return w
+        return outer
 
     def _on_shutdown_mode_changed(self):
         hora_mode = self.cmb_shutdown_mode.currentData() == "hora"
@@ -1115,6 +1192,9 @@ class MainWindow(QMainWindow):
         b = Path("/etc/systemd/system/mariadb-backup-apagado.service").exists()
         return a and b
 
+    def _sudoers_installed(self):
+        return Path("/etc/sudoers.d/mariadb-backup-manager").exists()
+
     def _schedule_shutdown(self, auto=False):
         now = datetime.now()
         if self.cmb_shutdown_mode.currentData() == "hora":
@@ -1145,6 +1225,17 @@ class MainWindow(QMainWindow):
             )
             if reply != QMessageBox.Yes:
                 return
+
+            if not self._sudoers_installed():
+                r2 = QMessageBox.question(
+                    self, "Permisos de apagado requeridos",
+                    "Para que el apagado automático funcione sin pedir contraseña, "
+                    "se necesitan instalar los servicios systemd y la regla sudoers.\n\n"
+                    "¿Instalar ahora? (se pedirá contraseña una sola vez)",
+                    QMessageBox.Yes | QMessageBox.No
+                )
+                if r2 == QMessageBox.Yes:
+                    self._install_services()
 
         if not auto:
             horas_dia = {dia: te.time().toString("HH:mm")
@@ -1205,11 +1296,17 @@ class MainWindow(QMainWindow):
                 self._shutdown_pending = True
                 self._run_backup(dbs, "apagado")
             else:
+                # Sin selección en la UI: listar todas las bases y respaldarlas
                 self._log(
-                    f'<span style="color:{WARNING}">⚠ Backup pre-apagado: '
-                    f'no hay bases seleccionadas. Apagando sin backup...</span>'
+                    f'<span style="color:{WARNING}">⚠ No hay bases marcadas. '
+                    f'Listando todas las bases del servidor para respaldar...</span>'
                 )
-                self._do_shutdown_now()
+                self._shutdown_pending = True
+                w = ListDBWorker(self.config)
+                w.result_signal.connect(self._on_dbs_listed_for_shutdown)
+                w.error_signal.connect(self._on_dbs_error_for_shutdown)
+                self._wls = w
+                w.start()
             return
 
         if remaining < 300:
@@ -1245,6 +1342,29 @@ class MainWindow(QMainWindow):
         self.lbl_shutdown_detail.setText("")
         self.lbl_today_schedule.setVisible(True)
         self._update_service_status()
+
+    def _on_dbs_listed_for_shutdown(self, dbs):
+        if not dbs:
+            self._log(
+                f'<span style="color:{WARNING}">⚠ No se encontraron bases. '
+                f'Apagando sin backup...</span>'
+            )
+            self._shutdown_pending = False
+            self._do_shutdown_now()
+            return
+        self._log(
+            f'<span style="color:{SUCCESS}">✓ {len(dbs)} bases encontradas. '
+            f'Iniciando respaldo previo al apagado.</span>'
+        )
+        self._run_backup(dbs, "apagado")
+
+    def _on_dbs_error_for_shutdown(self, err):
+        self._log(
+            f'<span style="color:{ERROR}">✗ Error al listar bases: {err}. '
+            f'Apagando sin backup...</span>'
+        )
+        self._shutdown_pending = False
+        self._do_shutdown_now()
 
     # ── Tab Historial ────────────────────────────────────────────────────────
     def _tab_historial(self):
@@ -1335,9 +1455,18 @@ class MainWindow(QMainWindow):
             self.db_checks_layout.addWidget(lbl)
             return
         self._log(f'<span style="color:{SUCCESS}">✓ {len(dbs)} bases encontradas.</span>')
+        # Restaurar selección guardada si existe (None = primera vez → marcar todas)
+        saved = self.config.get("selected_dbs")
         for db in dbs:
-            chk = QCheckBox(db); chk.setChecked(True)
+            chk = QCheckBox(db)
+            chk.setChecked(db in saved if isinstance(saved, list) else True)
+            chk.stateChanged.connect(self._save_selected_dbs)
             self.db_checks_layout.addWidget(chk)
+        self._save_selected_dbs()
+
+    def _save_selected_dbs(self):
+        self.config["selected_dbs"] = self._get_selected_dbs()
+        self._save_config()
 
     def _on_dbs_error(self, error):
         self._log(f'<span style="color:{ERROR}">✗ {error}</span>')
@@ -1409,18 +1538,83 @@ class MainWindow(QMainWindow):
             f"font-size:14px; font-weight:bold; color:{ERROR};"
         )
         self.lbl_countdown.setText("")
-        self.config["scheduled_shutdown"] = None
-        self._save_config()
+
+        # Intento 1: sudo -n (requiere regla en /etc/sudoers.d/mariadb-backup-manager)
+        self._log(f'<span style="color:{WARNING}">Intentando apagado: sudo -n shutdown -h now</span>')
         r = subprocess.run(
             ["sudo", "-n", "shutdown", "-h", "now"],
             capture_output=True, text=True
         )
-        if r.returncode != 0:
-            tmp = "/tmp/_mdb_shutdown.sh"
-            with open(tmp, "w") as f:
-                f.write("#!/bin/bash\nshutdown -h now\necho DONE\n")
-            os.chmod(tmp, 0o755)
-            subprocess.run(["pkexec", "bash", tmp], capture_output=True, text=True)
+        if r.returncode == 0:
+            self._log(f'<span style="color:{SUCCESS}">✓ Apagado iniciado por sudo.</span>')
+            self.config["scheduled_shutdown"] = None
+            self._save_config()
+            return
+
+        self._log(
+            f'<span style="color:{ERROR}">✗ sudo -n falló (rc={r.returncode}): '
+            f'{(r.stderr or r.stdout or "").strip()}</span>'
+        )
+
+        # Si falla por falta de sudoers, ofrecer instalar servicios y reintentar
+        if not self._sudoers_installed():
+            self._log(
+                f'<span style="color:{WARNING}">No existe /etc/sudoers.d/mariadb-backup-manager. '
+                f'Instalando servicios y regla sudoers...</span>'
+            )
+            ok = self._install_services()
+            if ok:
+                r = subprocess.run(
+                    ["sudo", "-n", "shutdown", "-h", "now"],
+                    capture_output=True, text=True
+                )
+                if r.returncode == 0:
+                    self._log(f'<span style="color:{SUCCESS}">✓ Apagado iniciado tras instalar sudoers.</span>')
+                    self.config["scheduled_shutdown"] = None
+                    self._save_config()
+                    return
+                self._log(
+                    f'<span style="color:{ERROR}">✗ sudo -n volvió a fallar (rc={r.returncode}): '
+                    f'{(r.stderr or r.stdout or "").strip()}</span>'
+                )
+
+        # Intento 2: pkexec (interactivo — requiere sesión gráfica activa)
+        self._log(f'<span style="color:{WARNING}">Intentando apagado: pkexec shutdown -h now</span>')
+        tmp = "/tmp/_mdb_shutdown.sh"
+        with open(tmp, "w") as f:
+            f.write("#!/bin/bash\nshutdown -h now\necho DONE\n")
+        os.chmod(tmp, 0o755)
+        r2 = subprocess.run(["pkexec", "bash", tmp], capture_output=True, text=True)
+        if r2.returncode == 0:
+            self._log(f'<span style="color:{SUCCESS}">✓ Apagado iniciado por pkexec.</span>')
+            self.config["scheduled_shutdown"] = None
+            self._save_config()
+            return
+
+        # Falló todo — mantener la programación para reintentar y avisar al usuario
+        err_txt = (r2.stderr or r2.stdout or "").strip()
+        self._log(
+            f'<span style="color:{ERROR}">✗ pkexec falló (rc={r2.returncode}): {err_txt}</span>'
+        )
+        self.lbl_countdown_title.setText("⚠  No se pudo apagar")
+        self.lbl_countdown_title.setStyleSheet(
+            f"font-size:14px; font-weight:bold; color:{ERROR};"
+        )
+        self.lbl_countdown.setText(
+            "Revisa la pestaña Apagado / Logs. Programación conservada."
+        )
+        self._backup_triggered = False
+        try:
+            QMessageBox.warning(
+                self, "Apagado bloqueado",
+                "No se pudo apagar el equipo automáticamente.\n\n"
+                "Causas posibles:\n"
+                "• La regla sudoers no se instaló (usa el botón 'Instalar servicios systemd').\n"
+                "• El diálogo de polkit fue cancelado o no apareció.\n\n"
+                "La programación se conservó. Revisa el log para detalles."
+            )
+        except Exception:
+            pass
 
     def _log(self, html):
         self.log_output.append(html)

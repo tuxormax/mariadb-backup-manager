@@ -4,8 +4,9 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
-VERSION="1.0"
-REVISION="15"
+# Fuente única de versión: src/mariadb_backup_manager.py (constantes APP_VERSION / APP_REVISION).
+VERSION=$(grep -oP '^APP_VERSION\s*=\s*"\K[^"]+' "$PROJECT_DIR/src/mariadb_backup_manager.py")
+REVISION=$(grep -oP '^APP_REVISION\s*=\s*"\K[^"]+' "$PROJECT_DIR/src/mariadb_backup_manager.py")
 PKG_NAME="mariadb-backup-manager_v${VERSION}_rev${REVISION}"
 PKG_DIR="/tmp/${PKG_NAME}"
 
@@ -96,36 +97,64 @@ if ! python3 -c "import PyQt5" 2>/dev/null; then
 fi
 command -v update-desktop-database &>/dev/null && \
     update-desktop-database /usr/share/applications/ 2>/dev/null || true
-echo "✓ MariaDB Backup Manager instalado. Ejecuta: mariadb-backup-manager"
+
+# Relanzar la app para los usuarios que la tenían corriendo (preinst la mató).
+# Detectamos por /home/*/.config/autostart/*.desktop para saber qué usuario la usa.
+for home_dir in /home/*; do
+    [ -f "$home_dir/.config/autostart/mariadb_backup_manager.desktop" ] || continue
+    user=$(basename "$home_dir")
+    uid=$(id -u "$user" 2>/dev/null) || continue
+    display=$(ps -u "$user" -o pid= 2>/dev/null | xargs -I{} cat /proc/{}/environ 2>/dev/null \
+              | tr '\0' '\n' | grep -m1 '^DISPLAY=' | cut -d= -f2)
+    [ -z "$display" ] && display=":0"
+    su - "$user" -c "DISPLAY=$display XDG_RUNTIME_DIR=/run/user/$uid \
+        nohup /usr/bin/mariadb-backup-manager --minimized \
+        > /tmp/mariadb-backup-manager-$user.log 2>&1 &" >/dev/null 2>&1 || true
+done
+
+echo "✓ MariaDB Backup Manager instalado. Si no estaba corriendo, ejecuta: mariadb-backup-manager"
 exit 0
 EOF
 
+# prerm: en upgrade NO tocamos config ni servicios. En remove/purge desinstalamos
+# servicios/sudoers/autostart pero NO el JSON (ese sólo se borra en `apt purge` vía postrm purge).
 cat > "$PKG_DIR/DEBIAN/prerm" << 'EOF'
 #!/bin/bash
 set -e
 # Cierra instancias corriendo antes de remover/actualizar
 pkill -f "mariadb_backup_manager.py" 2>/dev/null || true
 pkill -x "mariadb-backup-manager" 2>/dev/null || true
-# Solo borrar config y servicios al desinstalar, NO al actualizar
-if [ "$1" = "remove" ] || [ "$1" = "purge" ]; then
-    for home_dir in /home/*; do
-        rm -f "$home_dir/.config/autostart/mariadb_backup_manager.desktop"
-        rm -f "$home_dir/.config/mariadb_backup_manager.json"
-    done
-    systemctl disable mariadb-backup-inicio.service 2>/dev/null || true
-    systemctl disable mariadb-backup-apagado.service 2>/dev/null || true
-    rm -f /etc/systemd/system/mariadb-backup-inicio.service
-    rm -f /etc/systemd/system/mariadb-backup-apagado.service
-    rm -f /usr/local/bin/mariadb_backup.sh
-    rm -f /etc/sudoers.d/mariadb-backup-manager
-    systemctl daemon-reload 2>/dev/null || true
-fi
+case "$1" in
+    upgrade|failed-upgrade|deconfigure)
+        # No tocar nada en upgrade — preservar configuración y servicios
+        ;;
+    remove|purge)
+        for home_dir in /home/*; do
+            rm -f "$home_dir/.config/autostart/mariadb_backup_manager.desktop"
+        done
+        systemctl disable mariadb-backup-inicio.service 2>/dev/null || true
+        systemctl disable mariadb-backup-apagado.service 2>/dev/null || true
+        rm -f /etc/systemd/system/mariadb-backup-inicio.service
+        rm -f /etc/systemd/system/mariadb-backup-apagado.service
+        rm -f /usr/local/bin/mariadb_backup.sh
+        rm -f /etc/sudoers.d/mariadb-backup-manager
+        systemctl daemon-reload 2>/dev/null || true
+        ;;
+esac
 exit 0
 EOF
 
+# Solo `apt purge` borra el JSON de configuración del usuario.
 cat > "$PKG_DIR/DEBIAN/postrm" << 'EOF'
 #!/bin/bash
 set -e
+case "$1" in
+    purge)
+        for home_dir in /home/*; do
+            rm -f "$home_dir/.config/mariadb_backup_manager.json"
+        done
+        ;;
+esac
 command -v update-desktop-database &>/dev/null && \
     update-desktop-database /usr/share/applications/ 2>/dev/null || true
 exit 0

@@ -61,12 +61,13 @@ Diferencias intencionales:
 
 ## Antes de modificar
 
-Lee `docs/CONTEXT.md` — contiene:
-- Arquitectura del código con números de línea aproximados
-- Patrones usados (workers, subprocess, log, etc.)
-- Convenciones de nombres de variables
-- Cómo agregar nuevas pestañas
-- Lista de mejoras pendientes
+1. Lee `docs/REGRESSIONS.md` — checklist OBLIGATORIO de comportamientos ya arreglados que NO se deben romper. Verificar cada ítem después del cambio.
+2. Lee `docs/CONTEXT.md` — contiene:
+   - Arquitectura del código con números de línea aproximados
+   - Patrones usados (workers, subprocess, log, etc.)
+   - Convenciones de nombres de variables
+   - Cómo agregar nuevas pestañas
+   - Lista de mejoras pendientes
 
 ---
 
